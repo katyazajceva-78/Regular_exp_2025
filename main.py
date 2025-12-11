@@ -10,19 +10,18 @@ with open("phonebook_raw.csv", encoding="utf-8") as f:
 
 # Функция для форматирования телефонных номеров
 def format_phone_number(phone):
-    """Преобразует телефонный номер в нужный формат."""
-    digits = ''.join(re.findall(r'[+\d]', phone))  # извлекаем только цифры и знак +
+    digits = ''.join(re.findall(r'[+\d]', phone))  # извлекаем только цифры и плюс
     if len(digits) == 11 and digits.startswith('8'):
-        digits = digits.replace('8', '7', 1)  # меняем 8 на 7
+        digits = digits.replace('8', '7', 1)  # заменяем 8 на 7
     elif len(digits) == 10:
-        digits = '7' + digits  # добавляем префикс +7
+        digits = '7' + digits  # добавляем 7 впереди
     elif len(digits) != 11:
-        return ''  # неправильный формат номера
+        return ''  # возвращаем пустую строку, если номер неверный
 
-    # формируем базовый формат номера
+    # Формируем основную часть номера
     result = f"+7({digits[1:4]}){digits[4:7]}-{digits[7:9]}-{digits[9:]}"
 
-    # ищем добавочный номер
+    # Ищем добавочный номер
     ext_match = re.search(r'доб\.?\s*(\d+)', phone)
     if ext_match:
         result += f" доб.{ext_match.group(1)}"
@@ -30,9 +29,8 @@ def format_phone_number(phone):
     return result
 
 
-# Функция для правильного распределения ФИО
+# Функция для отделения ФИО
 def process_name(full_name):
-    """Распределяет ФИО по компонентам (Lastname, Firstname, Surname)."""
     names = full_name.split()
     while len(names) < 3:
         names.append('')
@@ -55,7 +53,7 @@ for row in contacts_list[1:]:  # пропускаем заголовок
 merged_contacts = defaultdict(dict)
 
 for contact in normalized_contacts:
-    key = (contact[0], contact[1])  # Уникальность по фамилии и имени
+    key = (contact[0], contact[1])  # уникальное сочетание по фамилии и имени
     if key not in merged_contacts:
         merged_contacts[key]['surname'] = contact[2]
         merged_contacts[key]['organizations'] = []
@@ -69,20 +67,21 @@ for contact in normalized_contacts:
     merged_contacts[key]['emails'].append(contact[6])
 
 # Сбор финальной таблицы
-final_contacts = [contacts_list[0]]  # Добавляем заголовок обратно
+final_contacts = [contacts_list[0]]  # добавляем заголовок обратно
 for key, value in merged_contacts.items():
     final_row = [
         key[0],  # Lastname
         key[1],  # Firstname
         value.get('surname', ''),  # Surname (отчество)
-        ', '.join(sorted(set(value['organizations']))),  # Организации
-        ', '.join(sorted(set(value['positions']))),  # Должности
-        ', '.join(sorted(set(value['phones']))),  # Телефоны
-        ', '.join(sorted(set(value['emails'])))  # Emails
+        ', '.join(sorted(set(value['organizations']))),  # Организация
+        ', '.join(sorted(set(value['positions']))),  # Должность
+        ', '.join(sorted(set(value['phones']))),  # Телефон
+        ', '.join(sorted(set(value['emails'])))  # Email
     ]
 
-    # Исключаем пустые элементы из объединяемых строк
-    final_row = [item.strip() for item in final_row if item.strip()]
+    # Исключаем пустые элементы только для конкретных полей
+    filtered_fields = [field.strip() for field in final_row[3:] if field.strip()]  # фильтруем начиная с 4-го элемента
+    final_row[3:] = filtered_fields  # заменяем старые поля новыми отфильтрованными
 
     final_contacts.append(final_row)
 
