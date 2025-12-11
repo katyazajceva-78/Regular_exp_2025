@@ -1,91 +1,74 @@
 import re
 import csv
-from collections import defaultdict
 
-# Читаем исходные данные
+# 1. Читаем данные из CSV-файла
 with open("phonebook_raw.csv", encoding="utf-8") as f:
     rows = csv.reader(f, delimiter=",")
     contacts_list = list(rows)
 
 
-# Функция для форматирования телефонных номеров
-def format_phone_number(phone):
-    digits = ''.join(re.findall(r'[+\d]', phone))  # извлекаем только цифры и плюс
+# Вспомогательная функция для форматирования телефона
+def format_phone(phone):
+    # Убираем все лишние символы, оставляя только цифры и плюс
+    digits = re.sub(r'\D', '', phone)
+
+    # Если длина номера соответствует российскому номеру мобильного
     if len(digits) == 11 and digits.startswith('8'):
-        digits = digits.replace('8', '7', 1)  # заменяем 8 на 7
+        digits = digits.replace('8', '7', 1)  # Меняем 8 на 7
     elif len(digits) == 10:
-        digits = '7' + digits  # добавляем 7 впереди
-    elif len(digits) != 11:
-        return ''  # возвращаем пустую строку, если номер неверный
+        digits = '7' + digits  # Добавляем 7 впереди
+    else:
+        return ""  # Если номер неподходящей длины, возвращаем пустую строку
 
-    # Формируем основную часть номера
-    result = f"+7({digits[1:4]}){digits[4:7]}-{digits[7:9]}-{digits[9:]}"
+    # Формируем телефон в правильном формате
+    formatted_phone = f"+7({digits[1:4]}){digits[4:7]}-{digits[7:9]}-{digits[9:]}"
 
-    # Ищем добавочный номер
-    ext_match = re.search(r'доб\.?\s*(\d+)', phone)
+    # Проверяем наличие добавочного номера
+    ext_match = re.search(r'доб\s*(\d+)', phone)
     if ext_match:
-        result += f" доб.{ext_match.group(1)}"
+        formatted_phone += f" доб.{ext_match.group(1)}"
 
-    return result
+    return formatted_phone
 
 
-# Функция для отделения ФИО
+# Вспомогательная функция для нормального представления ФИО
 def process_name(full_name):
-    names = full_name.split()
-    while len(names) < 3:
-        names.append('')
-    return names
+    parts = full_name.split()  # Делим строку на части по пробелам
+    while len(parts) < 3:
+        parts.append("")  # Если недостаточно частей, добавляем пустые
+    return parts
 
 
-# Основная логика обработки
-normalized_contacts = []
+# Перебор и очистка данных
+cleaned_contacts = []
 
-for row in contacts_list[1:]:  # пропускаем заголовок
-    full_name = ' '.join(row[:3])
+for contact in contacts_list[1:]:  # Проходим по каждому контакту, исключив заголовок
+    # Выделяем ФИО
+    full_name = ' '.join(contact[:3])
     lastname, firstname, surname = process_name(full_name)
-    organization = row[3].strip()
-    position = row[4].strip()
-    phone = format_phone_number(row[5])
-    email = row[6].strip()
-    normalized_contacts.append([lastname, firstname, surname, organization, position, phone, email])
 
-# Удаление дубликатов с сохранением отчества
-merged_contacts = defaultdict(dict)
+    # Остальные поля
+    organization = contact[3].strip()
+    position = contact[4].strip()
+    phone = format_phone(contact[5])
+    email = contact[6].strip()
 
-for contact in normalized_contacts:
-    key = (contact[0], contact[1])  # уникальное сочетание по фамилии и имени
-    if key not in merged_contacts:
-        merged_contacts[key]['surname'] = contact[2]
-        merged_contacts[key]['organizations'] = []
-        merged_contacts[key]['positions'] = []
-        merged_contacts[key]['phones'] = []
-        merged_contacts[key]['emails'] = []
+    # Создаем новую строку
+    cleaned_contacts.append([
+        lastname, firstname, surname, organization, position, phone, email
+    ])
 
-    merged_contacts[key]['organizations'].append(contact[3])
-    merged_contacts[key]['positions'].append(contact[4])
-    merged_contacts[key]['phones'].append(contact[5])
-    merged_contacts[key]['emails'].append(contact[6])
+# 4. Удаляем дубликаты записей
+seen = {}  # Словарь для отслеживания уникальных фамилий и имен
+final_contacts = [contacts_list[0]]  # Заголовок
 
-# Сбор финальной таблицы
-final_contacts = [contacts_list[0]]  # добавляем заголовок обратно
-for key, value in merged_contacts.items():
-    final_row = [
-        key[0],  # Lastname
-        key[1],  # Firstname
-        value.get('surname', ''),  # Surname (отчество)
-        ', '.join(sorted(set(value['organizations']))),  # Организация
-        ', '.join(sorted(set(value['positions']))),  # Должность
-        ', '.join(sorted(set(value['phones']))),  # Телефон
-        ', '.join(sorted(set(value['emails'])))  # Email
-    ]
+for contact in cleaned_contacts:
+    key = (contact[0], contact[1])  # Ключ по фамилии и имени
+    if key not in seen:
+        seen[key] = True
+        final_contacts.append(contact)
 
-    # Исключаем пустые элементы только для конкретных полей
-    filtered_fields = [field.strip() for field in final_row[3:] if field.strip()]  # фильтруем начиная с 4-го элемента
-    final_row[3:] = filtered_fields  # заменяем старые поля новыми отфильтрованными
-
-    final_contacts.append(final_row)
-
-# Запись итогового результата
+# 5. Записываем очищенные данные в новый CSV-файл
 with open("phonebook.csv", "w", encoding="utf-8") as f:
-    datawriter = csv.writer(f, delimiter=',')
-    datawriter.writerows(final_contacts)
+    writer = csv.writer(f, delimiter=',')
+    writer.writerows(final_contacts)
