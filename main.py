@@ -1,84 +1,96 @@
 import re
-from collections import defaultdict
 import csv
+from collections import defaultdict
+
+# Читаем адресную книгу в формате CSV в список contacts_list
+with open("phonebook_raw.csv", encoding="utf-8") as f:
+    rows = csv.reader(f, delimiter=",")
+    contacts_list = list(rows)
 
 
-def normalize_name(name):
-    """Разделение строки с именем на составляющие"""
-    parts = name.split()
-    if len(parts) > 3:
-        return ' '.join(parts[:3])
-    elif len(parts) == 3:
-        return ' '.join(parts)
+# Функция для форматирования телефонных номеров
+def format_phone_number(phone):
+    """
+    Преобразует телефонный номер в стандартный формат +7(999)999-99-99 или +7(999)999-99-99 доб.9999
+    """
+    # Очищаем строку от символов, кроме чисел и '+' в начале
+    digits = ''.join(re.findall(r'[+\d]', phone))
+
+    # Проверяем длину строки и определяем тип телефона
+    if len(digits) == 11 and digits.startswith('+'):
+        main_part = digits[1:]
+    elif len(digits) == 11 and digits.startswith('8'):
+        main_part = digits[1:]
+    elif len(digits) == 10:
+        main_part = digits
     else:
-        return ' '.join(parts)
+        return ''  # Неправильный формат телефона
+
+    # Формируем основной формат номера
+    formatted_phone = f'+7({main_part[:3]}){main_part[3:6]}-{main_part[6:8]}-{main_part[8:]}'
+
+    # Добавляем добавочный номер, если он указан
+    ext_match = re.search(r'доб\.*\s*(\d+)', phone)
+    if ext_match:
+        formatted_phone += f' доб.{ext_match.group(1)}'
+
+    return formatted_phone
 
 
-def normalize_phone(phone):
-    """Преобразование телефона в стандартный формат"""
-    pattern = r'(\+?\d)?\D*(\d{3})\D*(\d{3})\D*(\d{2})\D*(\d{2})(?:\s*(доб\.?)?\s*(\d+)?)?'
-    match = re.match(pattern, phone)
-    if not match:
-        return ''
-    groups = match.groups()
-    normalized_number = '+7({code_area})-{number}'.format(
-        code_area=groups[1],
-        number='-'.join([groups[2], groups[3], groups[4]])
-    )
-    if groups[-1]:
-        normalized_number += ' доб.' + groups[-1]
-    return normalized_number.strip()
+# Функциональность для разделения ФИО
+def separate_full_name(full_name):
+    """
+    Распределяет имя, фамилию и отчество по отдельным элементам списка.
+    """
+    parts = full_name.strip().split(maxsplit=2)
+    while len(parts) < 3:
+        parts.append('')
+    return parts
 
 
-def clean_contacts(data):  # переименовали аргумент
-    """Главная логика очистки и объединения записей"""
-    result = []
-    headers = data.pop(0)
-    grouped_data = defaultdict(list)
+# Применяем очистку и нормализацию данных
+normalized_contacts = []
 
-    for record in data:  # используем другое имя переменной
-        full_name = normalize_name(' '.join(record[:3]))
-        key = tuple(full_name.split())
-        grouped_data[key].append({
-            'lastname': record[0],
-            'firstname': record[1],
-            'surname': record[2],
-            'organization': record[3],
-            'position': record[4],
-            'phone': normalize_phone(record[5]),
-            'email': record[6]
-        })
+for row in contacts_list[1:]:  # Пропускаем заголовок
+    # Отделяем ФИО
+    full_name = ' '.join(row[:3])
+    lastname, firstname, surname = separate_full_name(full_name)
 
-    for key, records in grouped_data.items():
-        merged_record = {}
-        for field in ['lastname', 'firstname', 'surname']:
-            values = set(r[field] for r in records)
-            merged_record[field] = max(values, key=lambda x: len(x)) if values else ""
+    # Получаем остальную информацию
+    organization = row[3].strip()
+    position = row[4].strip()
+    phone = format_phone_number(row[5])
+    email = row[6].strip()
 
-        for field in ['organization', 'position', 'email']:
-            non_empty_values = [r[field] for r in records if r[field]]
-            merged_record[field] = non_empty_values[0] if non_empty_values else ""
+    # Создаем новую нормализованную запись
+    new_row = [lastname, firstname, surname, organization, position, phone, email]
+    normalized_contacts.append(new_row)
 
-        phones = {normalize_phone(r['phone']) for r in records}
-        merged_record['phone'] = ', '.join(sorted(phones))
+# Группируем записи по ФИО и удаляем дубликаты
+merged_contacts = defaultdict(lambda: {'organization': [], 'position': [], 'phones': [], 'emails': []})
 
-        result.append(merged_record.values())
+for record in normalized_contacts:
+    key = (record[0], record[1])  # Ключ по фамилии и имени
+    entry = merged_contacts[key]
+    entry['organization'].append(record[3])
+    entry['position'].append(record[4])
+    entry['phones'].append(record[5])
+    entry['emails'].append(record[6])
 
-    return [headers] + sorted(result, key=lambda row: next(iter(row)))
+# Готовим итоговую таблицу
+final_contacts = [contacts_list[0]]  # добавляем заголовок обратно
+for key, values in merged_contacts.items():
+    # Оставляем уникальные организации, должности, телефоны и почты
+    organizations = ', '.join(set(values['organization']))
+    positions = ', '.join(set(values['position']))
+    phones = ', '.join(set(filter(None, values['phones'])))
+    emails = ', '.join(set(filter(None, values['emails'])))
 
+    # Собираем строку
+    final_row = [key[0], key[1], '', organizations, positions, phones, emails]
+    final_contacts.append(final_row)
 
-if __name__ == "__main__":
-    raw_csv_filename = 'phonebook_raw.csv'
-    processed_csv_filename = 'phonebook.csv'
-
-    with open(raw_csv_filename, mode='r', encoding='utf-8') as file:
-        reader = csv.reader(file, delimiter=',')
-        contacts_list = list(reader)  # сохранили глобальную переменную
-
-    cleaned_contacts = clean_contacts(contacts_list)  # передали ей в функцию
-
-    with open(processed_csv_filename, mode='w', newline='', encoding='utf-8') as file:
-        writer = csv.writer(file, delimiter=',')
-        writer.writerows(cleaned_contacts)
-
-    print("Контакты успешно обработаны!")
+# Запись результатов в новый CSV-файл
+with open("phonebook.csv", "w", encoding="utf-8") as f:
+    datawriter = csv.writer(f, delimiter=',')
+    datawriter.writerows(final_contacts)
